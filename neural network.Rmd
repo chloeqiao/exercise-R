@@ -1,0 +1,150 @@
+---
+title: "Homework 2"
+output: html_notebook
+---
+
+
+##Ex. 1 — ImageNet
+
+####1. What is ImageNet?
+ImageNet is an image database organized according to the WordNet hierarchy，which is a large lexical database of English.Each meaningful concept in WordNet, possibly described by multiple words or word phrases, is called a "synonym set" or "synset". ImageNet aim to provide on average 1000 images to illustrate each synset. Images of each concept are quality-controlled and human-annotated.
+
+####2. How many different kinds of cheese can you find in ImageNet?
+37 types
+
+####3. What is the best classifier on ImageNet and what is its error rate?
+Among models, Inception-v3 reaches lowest error rate, 3.46%.
+
+According to ILSVRC 2017 result,Ensemble C [No bounding box results] from WMW is the best with a classification error rate of 2.2% in the task of Classification+localization with provided training data.
+
+
+##Ex. 2 — Build an image recognition system
+```{r}
+library(keras)
+model <- application_resnet50(weights = 'imagenet')
+summary(model)
+```
+
+
+####a) What are the other pre trained networks available with keras?
+Xception,VGG16,VGG19,InceptionV3,InceptionResNetV2,MobileNet,DenseNet,NASNet
+
+```{r}
+img_path <- "my_image.jpg"
+img <- image_load(img_path, target_size = c(224,224))
+x <- image_to_array(img)
+x <- array_reshape(x, c(1, dim(x)))
+x <- imagenet_preprocess_input(x)
+preds <- model %>% predict(x)
+imagenet_decode_predictions(preds, top = 5)[[1]]
+```
+Top 5 recognized objects do not include the one represented on my image.
+
+
+##Ex. 3 — Your turn
+
+####1. based on your previous work, build an binary object recognition (only two objects) by transfer learning and fine tuning.
+####a) choose two classes
+I choose cat and dog.
+####b) download some (say 10 to 50) images of each class on the web split your images into
+two sets (training and testing) and setup our data with a training directory and a
+validation directory
+For each class, I downloaded 40 images for training, and 10 for validation.
+
+####c) proceed adapting the code
+####Here I use transfer learning first, which perfoms well, but not robust. I think it is because I don't have enough data. Then I perform fine tuning, and it didn't improve much. 
+####plots in the same folder
+
+```{r}
+batch_size = 10
+train_directory <- "train"
+test_directory <- "val"
+
+train_generator <- flow_images_from_directory(train_directory,batch_size = batch_size)
+validation_generator <- flow_images_from_directory(test_directory,batch_size = batch_size)
+
+
+```
+
+
+
+```{r}
+# create the base pre-trained model
+base_model <- application_resnet50(weights = 'imagenet', include_top = FALSE)
+```
+
+
+```{r}
+# add our custom layers
+predictions <- base_model$output %>% 
+  layer_global_average_pooling_2d(trainable = T) %>% 
+  layer_dense(units = 100, activation = 'relu',trainable = T) %>%
+  layer_dropout(0.2, trainable = T) %>%
+  layer_dense(units = 2, activation = 'softmax',trainable = T)
+
+```
+
+```{r}
+# this is the model we will train
+model <- keras_model(inputs = base_model$input, outputs = predictions)
+```
+
+#### transfer learnig
+```{r}
+for (layer in base_model$layers)
+  layer$trainable <- FALSE
+```
+
+```{r}
+model %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(lr = 0.001),  
+  metrics = "accuracy"
+)
+```
+
+
+```{r}
+train_samples = 80
+validation_samples = 20
+
+hist <- model %>% fit_generator(
+  train_generator,
+  steps_per_epoch = as.integer(train_samples/batch_size), 
+  epochs = 16, 
+  validation_data = validation_generator,
+  validation_steps = as.integer(validation_samples/batch_size)
+)
+```
+
+
+
+####fine-tuning
+```{r}
+freeze_weights(base_model, from = 1, to = 30)
+unfreeze_weights(base_model, from = 31)
+```
+
+
+
+```{r}
+model %>% compile(
+  loss = "categorical_crossentropy",
+  optimizer = optimizer_rmsprop(lr = 1e-4),
+  metrics = c("accuracy")
+)
+
+history <- model %>% fit_generator(
+  train_generator,
+  steps_per_epoch = as.integer(train_samples/batch_size),
+  epochs = 16,
+  validation_data = validation_generator,
+  validation_steps = as.integer(validation_samples/batch_size)
+)
+```
+
+####2. Is it better to do transfer learning and fine tuning or both?
+
+####It depends on the scenarios. Transfer learning is to transfer leanrt model to new problem(with less data than pretained model). Since the pretained model has extracted useful features, we can adapt this network and developed features to train our model.
+####For fine tuning, COnsider: the size of the new dataset (small or big), and its similarity to the original dataset.If new dataset is large and similar to the original dataset, it is not likely to overfit if we were to try to fine-tune through the full network. 
+####Basically we can use transfer learning for new task with similar target to original one, then use fine-tuning for improvement.
