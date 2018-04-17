@@ -1,0 +1,291 @@
+---
+title: "Case study 2: linear models and linear mixed effects models"
+output: html_notebook
+---
+
+
+##1. Fitting a linear model
+The file sales1.csv consists of quarterly sales volumes (in % and indexed to the time 0) of a product.
+
+```{r}
+library(ggplot2)
+library(reshape2)
+library(stats)
+library(lme4)
+library(MASS)
+sales1<-read.csv("sales1.csv")
+```
+
+####1.Plot the data
+
+```{r}
+
+theme_set(theme_bw())
+p1<-ggplot(sales1)+geom_point(aes(x=time, y=y), size=2, colour="#993399") + 
+  xlab("time") + ylab("quarterly sales volumes")
+print(p1)
+```
+
+####2.Fit a polynomial model to this data (justify the choice of the degree). What do the residuals suggest?
+```{r}
+poly0 <- lm(y ~ 1,data=sales1)
+poly1 <- lm(y ~ time, data=sales1)
+poly2 <- lm(y ~poly(time,2), data=sales1)
+poly3 <- lm(y ~poly(time,3), data=sales1)
+poly4 <- lm(y ~poly(time,4), data=sales1)
+#lm3 <- lm(y ~ time + I(time^2) + I(time^3), data=sales1)
+#lm4 <- lm(y ~ time + I(time^2) + I(time^3) + I(time^4), data=sales1)
+
+poly.df <- data.frame(time=seq(0,70,by=0.5))
+poly.df$p0 <- predict(poly0,poly.df)
+poly.df$p1 <- predict(poly1,poly.df)
+poly.df$p2 <- predict(poly2,poly.df)
+poly.df$p3 <- predict(poly3,poly.df)
+poly.df$p4 <- predict(poly4,poly.df)
+
+
+poly.df <- melt(poly.df, id="time", variable.name = "model", value.name = "prediction")
+
+print(ggplot() + 
+        geom_line(data=poly.df, aes(x=time,y=prediction,colour=model), size=0.75) +
+        geom_point(data=sales1, aes(x=time,y=y), colour="black", size=3) + 
+        geom_point(data=sales1, aes(x=time,y=y), colour="white", size=2) 
+)
+
+```
+
+
+
+```{r}
+BIC(poly0,poly1,poly2,poly3,poly4)
+```
+
+####According to BIC, I choose polynomial model with degree 1.
+```{r}
+summary(poly1)
+```
+
+
+```{r}
+par(mfrow = c(1, 2))
+plot(poly1, which=c(1,2))
+```
+
+####The residuals look independent and distributed around 0. Residuals distribution is similar to a normal distribution. The QQ plot shows the extreme residual values are the extreme values of a normal distribution. However, the residuals are not so closed to 0, indicating I might improve this model.
+
+
+####3.Try to improve the model by adding a periodic component (little reminder: cos(2pit/T) and sin(2pit/T) are periodic functions of period T). Write your final model as a mathematical equation.
+
+Let t represent time. My model is $$ y = 99.7 + 0.386t + 2.352sin(\frac{2\pi t}{12}) + 1.185cos(\frac{2\pi t}{12}) $$.
+```{r}
+plm<-lm(y~time+I(sin(2*pi*time/12))+I(cos(2*pi*time/12)),data = sales1)
+summary(plm)
+```
+
+####4.Plot on a same graph the observed sales together with the predicted sales given by your final model. What do you think about this model? What about the residuals?
+```{r}
+plm.df <- data.frame(time=seq(0,70,by=0.5))
+plm.df$plm <- predict(plm,plm.df)
+print(p1 + geom_line(data=plm.df,aes(time,plm), size=1,color = "#E69F00"))
+```
+####This improved model can fit the data better with a periodic and increasing trend. It makes sense because there can be seasonal impact on sales. 
+
+```{r}
+par(mfrow=c(1,2))
+plot(predict(plm), sales1$y)
+abline(a=0, b=1, lty=1, col="magenta")
+residual.plm <- resid(plm)/sd(resid(plm))
+plot(predict(plm), residual.plm)
+abline(a=0, b=0, lty=2, col="magenta")
+```
+####Observations and predictions look well randomly distributed and also concentrated around the line $y=x$.The residuals also look randomly distributed around 0 with the same variance, and the range is from -2 to 2, which is much better than polynomial model with degree 1. So I cannot reject this model.
+
+####5.We want the predicted sales volume to be equal to 100 at time 0. Modify your final model in order to take this constraint into account.
+
+####When fitting model, I decrease y by 100 for each observation, then set intercept as 0, and minus 1 to variable cos() as cos(0) = 1. In this way, predicted sales volumns are 100 at time 0.
+
+$$ y = 100 + 0.4t + 2.4sin(\frac{2\pi t}{12}) + 0.895(cos(\frac{2\pi t}{12})-1) $$.
+
+```{r}
+plm3<-lm(y-100~-1+time+I(sin(2*pi*time/12))+I(cos(2*pi*time/12)-1),data = sales1 )
+summary(plm3)
+```
+
+
+
+##2. Fitting a linear mixed effects model
+
+The file sales30.csv now consists of quarterly sales volumes (still in % and indexed to the time 0) of 30 different products.
+####1.Plot the data
+```{r}
+sales30<-read.csv("sales30.csv")
+
+p2<-ggplot(data=sales30, aes(x=time, y=y,color=id)) + geom_point() + geom_line() + facet_wrap(~id)
+p2
+```
+
+
+####2.Fit the model used previously for fitting the first series to this data and comment the results.
+
+My previous model is $$ y = S+ kt + Asin(\frac{2\pi t}{12})+Bcos(\frac{2\pi t}{12}) $$
+
+```{r}
+plm2<-lm(y~time+I(sin(2*pi*time/12))+I(cos(2*pi*time/12)),data=sales30)
+summary(plm2)
+```
+
+
+```{r}
+p2 + geom_line(aes(x=time,y=predict(plm2),color = id)) + facet_wrap(~id)
+```
+
+
+####This model doesn't perform well since sales volumes for different products are different. And R square is low. We cannot fit one model for all kinds of products.
+
+####3.Fit a mixed effect model to this data (discuss the choice of fixed and random effects). Write your final model as a mathematical equation.
+```{r}
+lme1<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (1|id), data=sales30)
+lme2<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (-1+time|id) + (-1+sin(2*pi*time/12)|id) + (-1+cos(2*pi*time/12)|id), data=sales30)
+lme3<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + ((-1+time+sin(2*pi*time/12)+ cos(2*pi*time/12))|id),data = sales30)
+lme4<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (time + sin(2*pi*time/12) + cos(2*pi*time/12)|id),data = sales30)
+lme5<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (time|id) + (sin(2*pi*time/12)|id) + (cos(2*pi*time/12)|id), data=sales30)
+
+lme6<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (-1+time|id) + (sin(2*pi*time/12)|id) + (cos(2*pi*time/12)|id), data=sales30)
+lme7<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (time|id) + (-1+sin(2*pi*time/12)|id) + (cos(2*pi*time/12)|id), data=sales30)
+lme8<-lmer(y ~ time + sin(2*pi*time/12) + cos(2*pi*time/12) + (time|id) + (sin(2*pi*time/12)|id) + (-1+cos(2*pi*time/12)|id), data=sales30)
+```
+
+
+
+```{r}
+BIC(lme1,lme2,lme3,lme4,lme5,lme6,lme7,lme8)
+```
+
+####lme2 has the least BIC, so I choose lme2
+
+```{r}
+summary(lme2)
+```
+
+$$\begin{aligned}
+ \quad \quad y_{ij} &= \beta_0 + \beta_1 \times{\rm time}_{ij} + \beta_2 \times{\rm sin(2\pi time}_{ij}/12) + \beta_3 \times{\rm cos(2\pi time}_{ij}/12) + \eta_{i1} \times{\rm time}_{ij} + \eta_{i2} \times{\rm sin(2\pi time}_{ij}/12) + \eta_{i3} \times{\rm cos(2\pi time}_{ij}/12) + e_{ij}
+\end{aligned}$$
+
+####4.Plot the data with the predicted sales given by your final model.
+```{r}
+p2 + geom_line(aes(x=time,y=predict(lme2),color = id)) + facet_wrap(~id)
+```
+
+####5.How could you take into account the previous constraint (predicted sales volume are all equal to 100 at time 0)?
+
+```{r}
+lme6<-lmer(y -100 ~ -1 + time + sin(2*pi*time/12) + cos(2*pi*time/12) + (-1+time|id) + (-1+sin(2*pi*time/12)|id) + (-1+(cos(2*pi*time/12)-1)|id),data = sales30)
+summary(lme6)
+```
+
+##3. Individual prediction
+The file salesNew.csv consists of quarterly sales volumes of another product.
+
+The final model of part 2 will be used here. In other words, you should not use the new data to fit any new model.
+
+####1.Suppose first that we don't have any data for this product (although data are available for this product, we act as if we do not know them). How can we predict the sales volumes for this product? plot the data and the prediction on a same graph.
+
+####Since we have no data for this product, and we know in the fixed effects model, the random efficients is distributed normally with expection = 0. We can use only fixed coefficients for prediction. 
+```{r}
+salesnew<-read.csv("salesNew.csv")
+p3<-ggplot(salesnew)+geom_point(aes(x=time, y=y), size=2, colour="#993399")
+
+new<-data.frame(time = salesnew[,1])
+new$id<-seq(31,31,by = 0)
+res<-summary(lme2)
+res
+beta<-res$coefficients[,1]
+beta<-as.matrix(beta)
+
+
+
+pred0<-predict(lme2, new, allow.new.levels = TRUE)
+
+p3 + geom_point(aes(x=time,y=pred0),color = "#E69F00")
+
+```
+
+####2.Suppose now that only the first data at time 1 is available for this product. Compute and plot the new predictions.
+####We need to estimate random coefficients with 
+$$\hat{\Gamma}_i =  \left(\frac{A_i^\prime A_i}{\hat\sigma^2} + \hat\Omega^{-1}\right)^{-1} \quad ; \quad\hat\mu_i =  \frac{\hat\Gamma_i A_i^\prime(y_i - X_i\hat\beta)}{\hat\sigma^2}$$
+
+```{r}
+summary(lme2)
+```
+
+
+```{r}
+#compute the covariance matrix which is diagonal here
+# extract the variance of three random coefficients
+vc<-VarCorr(lme2)
+vc<-as.data.frame(vc)[,4]
+
+```
+
+```{r}
+salesnew$int<-seq(1,1,by = 0)
+salesnew$s<-sin(2*pi*salesnew$time/12)
+salesnew$c<-cos(2*pi*salesnew$time/12)
+salesnew<-salesnew[,c(3,1,4,5,2)]
+head(salesnew)
+```
+
+
+```{r}
+# compute conditional estimator by formula and added to the fixed coefficient
+sig<-summary(lme2)$sigma
+omega<-diag(1,3,3)
+omega[1,1] = vc[1]
+omega[2,2] = vc[2]
+omega[3,3] = vc[3]
+
+
+A<-as.matrix(salesnew[1,c(2,3,4)])
+gamma = ginv(t(A)%*%A/(sig^2)+ginv(omega))
+
+y = as.matrix(salesnew[1,5])
+X = as.matrix(salesnew[1,1:4])
+mu = gamma%*%t(A)%*%(y - X%*%beta)/(sig^2)
+mu = rbind(0, mu)
+c = beta +mu
+
+salesnew$pred1<- as.matrix(salesnew[,1:4])%*%c
+p3+geom_point(data=salesnew,aes(time,pred1), size=2,color = "#E69F00")
+
+
+
+```
+
+####3.Repeat the same process with an increasing number of observed data. Comment the results
+
+#### I define error as absoulute value of prediction - observed. With the increasement of data, the error of prediction. As we are getting more and more information of the new product, our estimator is more likely to be close to the best value of random coefficients.
+```{r}
+preds<-NULL
+errors<- NULL 
+n  = nrow(salesnew)
+for (i in 1:n) {
+  Ai<-as.matrix(salesnew[1:i,c(2,3,4)])
+gammai = ginv(t(Ai)%*%Ai/(sig^2)+ginv(omega))
+
+yi = as.matrix(salesnew[1:i,5])
+Xi = as.matrix(salesnew[1:i,1:4])
+mui = gammai%*%t(Ai)%*%(yi - Xi%*%beta)/(sig^2)
+mui = rbind(0, mui)
+ci = beta +mui
+
+predi<- as.matrix(salesnew[,1:4])%*%ci
+errori <- sum(abs(salesnew$y - predi))
+preds <- cbind(preds,predi)
+errors <- c(errors, errori)
+
+}
+
+errors
+plot(errors)
+
+```
