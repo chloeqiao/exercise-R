@@ -1,0 +1,219 @@
+---
+title: "8.5 RV and dCov coefficients"
+output: html_notebook
+---
+
+
+
+```{r}
+library(mvtnorm)
+library(FactoMineR)
+library(energy)
+library(ggplot2)
+library(stats)
+
+```
+
+
+##8.5.1 Expected values of the RV coefficient with respect to the dimensions
+
+
+####(R1) Let n=25 and p=q=5. Generate matrix X and Y by drawing observations from independent gaussian distributions with mean $\mu=(0)_{1 \times p}$ and covariance matrix $\text{Id}_{p \times p}$.Compute the value of the RV coefficient.
+
+```{r}
+n = 25
+p = q = 5
+X<-rmvnorm(n,mean=rep(0,p),sigma = diag(p))
+Y<-rmvnorm(n,mean=rep(0,q),sigma = diag(q))
+coeffRV(X, Y)$rv
+```
+
+#### Repeat the process 100 times and take the quantile at 95% of this empirical distribution (under the null hypothesis of no linear relationship) of RV coefficient. The aim is now to vary n and p=q and to perform the same operation for $n=25,30,35,50,70,100$ and $p=q=5,10,20,50,100$. Create a matrix to gather your results, i.e. which contains the values of these quantiles of RV coefficient for the different size.
+
+```{r}
+result1<-matrix(nrow = 6, ncol = 5)
+
+ns<-c(25,30,35,50,70,100)
+ps<-c(5,10,20,50,100)
+for (n in ns) {
+  i = which(ns==n)
+  
+  for (p in ps) {
+    j = which(ps==p)
+    get_rv<-function(i) {
+    X<-rmvnorm(n,mean=rep(0,p),sigma = diag(p))
+    Y<-rmvnorm(n,mean=rep(0,p),sigma = diag(p))
+    coeffRV(X, Y)$rv
+    }
+    rvcoes <- t(sapply(1:100,get_rv))
+    rvquantile <- quantile(rvcoes,0.95)
+    result1[i,j]<- rvquantile
+    
+  }
+
+}
+rownames(result1) <- c(25,30,35,50,70,100)
+colnames(result1) <- c(5,10,20,50,100)
+result1 # row name is n, column name is p(q).
+```
+
+####(Q2) Comment in two or three sentences the obtained values of the RV coefficient.
+###Fix n, when p increases (number of varibles increases), the quantile of RV coefficient increases, indicating two matrices are more likely to have linear correlation.
+###Fix p, when n (number of observations) increases, the quantile of RV coefficient decreases, meaning that with more sample, variables in two sets are less likely to have similar relative position.
+
+
+##8.5.2 Permutation test for wine data
+From the results of the preceding section (RV coefficient), a testing procedure to test the significance of the association between X and Y is necessary. One usually sets up the hypothesis test by taking
+$H_0$, $\rho V=0$ there is no linear relationship between the two sets
+$H_1$, $\rho V>0$ there is a linear relationship between the two sets
+
+
+In this section, we focus on a permutation test. Repeated permutation of the rows of one matrix and computation of the statistic such as the RV coefficient provides the distribution of the RV coefficient under $H_0$.
+
+The data we are working on have already been introduced in the classes (Wine tasting). It is a sensory analysis where judges assessed wines. We worked on a data set where the judges were experts (Expert_wine.csv). In addition, we have at disposal data where the wines have been described by Students (Student_wine.csv) and usual consumers (Consumer_wine.csv). We want to globally compare the analysis of the wines between these different judges, i.e. to see if the wines are described in the same way by the different panelists (if wines which are close for Experts are also close for Students).
+
+####(R2) Import the data sets and keep only the quantitative variables. Compute the RV coefficients between the different pairs of the judges (Experts, Consumers, Students). Comment the results.
+
+```{r}
+expert <- read.table("Expert_wine.csv",header=TRUE, sep=";", row.names=1) 
+student <- read.table("Student_wine.csv",header=TRUE, sep=";", row.names=1) 
+customer <- read.table("Consumer_wine.csv",header=TRUE, sep=";", row.names=1)
+```
+
+
+```{r}
+#keep only the quantitative variables
+expert<-expert[,sapply(expert,is.numeric)]
+student<-student[,sapply(student,is.numeric)]
+customer<-customer[,sapply(customer,is.numeric)]
+```
+
+
+```{r}
+rv_e_s<-coeffRV(as.matrix(expert), as.matrix(student))$rv
+rv_e_c<-coeffRV(as.matrix(expert), as.matrix(customer))$rv
+rv_s_c<-coeffRV(as.matrix(student), as.matrix(customer))$rv
+rbind(c("expert~student","expert~customer","student~customer"),c(rv_e_s,rv_e_c,rv_s_c))
+```
+
+####Comment:
+###The RV coefficients between the different pairs of the judges are all over 0.7. For example, RV coefficient of expert and student are larger than that of expert and customer, we can consider that datasets expert and student are more correlated than datasets expert and customer. However, to decide if wine is described similarly by them, we still need more evidence.
+
+
+
+
+For a couple of matrices, ${\mathbf{X}}_1$ and ${\mathbf{X}}_2$ (for instance Experts, Consumers), using the sample function, produce 10000 permutations of the rows of one matrix say ${\mathbf{X}}_1$
+and compute each time the RV coefficient between the matrix with permuted rows ${\mathbf{X}}_1^{perm}$ and ${\mathbf{X}}_2$, (perm=1, бн, 10000). Plot the histogram of the empirical distribution of the RV coefficient you obtain. Position the observed value of the RV coefficient calculated between the initial matrices ${\mathbf{X}}_1$ and ${\mathbf{X}}_2$. Calculate the p-value using this empirical distribution, and compare it to the p-value given by the coeffRV function. The p-value is defined as the proportion of the values that are greater or equal to the observed coefficient.
+
+
+
+```{r}
+#generate result of permutation RV coefficients 
+X1<-as.matrix(expert)
+X2<-as.matrix(customer)
+perm_rv<-function(i) {
+  X1_perm<-X1[sample(nrow(X1), nrow(X1), replace = FALSE), ]
+  coeffRV(X1_perm, X2)$rv
+}
+result2 <- sapply(1:10000,perm_rv)
+summary(result2)
+```
+
+
+```{r}
+result2<-data.frame(result2) 
+#plot the histogram
+ggplot(aes(x=result2),data = result2) + geom_histogram(binwidth=.05,colour="black", fill="white")+labs(x="rv coefficent",y="density",title = "histogram of the empirical distribution of the RV coefficient")+ geom_vline(xintercept=rv_e_c,colour="green")+ geom_text(aes(x=rv_e_c, label="observed value 0.713"),y=300,color="green")
+
+```
+
+```{r}
+prv<-coeffRV(X1,X2)$p.value
+pemp<-sum(result2 >= rv_e_c)/nrow(result2) #p-value calculated using this empirical distribution
+cbind(c("p.value of coeffRV","p.value with empirical distribution"),c(prv,pemp))
+```
+
+###The two p.values are very close and significant(under 0.05). p-value calculated using this empirical distribution is a little smaller than p-value given by the coeffRV function.
+
+
+####(Q3) Explain in two sentences why this procedure makes sense to test the null hypothesis of no association.
+###Permutations of the rows of X1 breaks the initial correlation of x1 and X2. Repeat permutation for many times so we can get the RV permutation distribution under the null hypothesis, then we decide to reject (or not) null hypothesis according to the p.value(proportion of values >= observed rv coefficient).
+
+
+##8.5.3 Power of the RV and dCov tests in the case of a linear relation
+
+####(R3) For $p=q=5$ and $n=25,30,35,50,70,100$, simulate a gaussian vector $(X,Y)$ of dimension $p+q=10$ of mean 0 and covariance matrix $0.1 \times \mathbb{1}_{10 \times 10} + 0.9 \times \text{Id}_{10 \times 10}$. For 1000 simulations, calculate the p-value of the RV and dCov tests respectively. Count the number of times the p-value is less than 0.1. The frequencies obtained respectively for the RV and dCov tests are approximations of the power of the tests. Plot the powers of these tests as a function of n.
+
+```{r}
+#do simulations and generate frequcencies of coeffiecient for RV and dcov
+sig <-0.1*matrix(1,nrow = 10, ncol = 10)+0.9*diag(10)
+freqs<-NULL
+for (n in ns){
+  simu<-function(i) {
+    XY<-rmvnorm(n,mean=rep(0,10),sigma = sig)
+    X<-XY[,1:5]
+    Y<-XY[,6:10]
+    p_rv<-coeffRV(X,Y)$p.value
+    p_dcov<-dcov.test(X,Y,R=500)$p.value # not sure how to decide the value of R
+    c(p_rv,p_dcov)
+  }
+  pvals <- t(sapply(1:1000,simu))
+  freq_rv<-sum(pvals[,1]<0.1)/1000
+  freq_dcov<-sum(pvals[,2]<0.1)/1000
+  freq<-c(n,freq_rv,freq_dcov)
+  freqs<-rbind(freqs,freq)
+}
+
+colnames(freqs) <- c("nval", "rv","dcov")
+freqs<-data.frame(freqs)
+freqs
+```
+
+
+```{r}
+#plot the power
+p1<-ggplot(data=freqs,aes(x=nval))+geom_point(aes(y=rv,color="rv")) +geom_point(aes(y=dcov,color="dcov"))+labs(x="n",y="power",title ="power of rv and dcov test (linear relation)")
+p1 + geom_line(aes(y=rv,color="rv"))+geom_line(aes(y=dcov,color = "dcov"))
+```
+
+####(Q4) Comment in two or three sentences the plot.
+###Both two tests are more powerful when n grows, and their powers increase fast in the interval (5,100) of n, reaching around 80% when n=100. RV test is more powerful than dcov test in case of linear relation, but the difference is not very large.
+
+##8.5.4 Power of the RV and dCov tests in the case of a nonlinear relation
+The same steps can be done in the case of a nonlinear relation between $X$ and $Y$.
+
+####(R4) For $p=q=5$ and $n=25,30,35,50,70,100$, simulate a gaussian vector $X$ of dimension $p=10$, of mean 0 and covariance matrix $\text{Id}_{10 \times 10}$. Then set $Y=\log(X^2)$. For 1000 simulations, calculate the p-value of the RV and dCov tests respectively. Count the number of times the p-value is less than 0.1. The frequencies obtained respectively for the RV and dCov tests are approximations of the power of the tests. Plot the powers of these tests in function of n.
+
+```{r}
+#do simulations and generate frequcencies of coeffiecient for RV and dcov
+freqs2<-NULL
+for (n in ns){
+  simu2<-function(i) {
+    X<-rmvnorm(n,mean=rep(0,10),sigma = diag(10))
+    Y<-log(X^2)
+    p_rv<-coeffRV(X,Y)$p.value
+    p_dcov<-dcov.test(X,Y,R=500)$p.value # not sure about value of R
+    c(p_rv,p_dcov)
+  }
+  pvals2 <- t(sapply(1:1000,simu2))
+  freq2_rv<-sum(pvals2[,1]<0.1)/1000
+  freq2_dcov<-sum(pvals2[,2]<0.1)/1000
+  freq2<-c(n,freq2_rv,freq2_dcov)
+  freqs2<-rbind(freqs2,freq2)
+}
+
+colnames(freqs2) <- c("nval", "rv","dcov")
+freqs2<-data.frame(freqs2)
+freqs2
+```
+
+
+```{r}
+#plot the power
+p2<-ggplot(data=freqs2,aes(x=nval))+geom_point(aes(y=rv,color="rv")) +geom_point(aes(y=dcov,color="dcov"))+labs(x="n",y="power",title ="power of rv and dcov test (nonlinear relation)")
+p2 + geom_line(aes(y=rv,color="rv"))+geom_line(aes(y=dcov,color = "dcov"))
+```
+
+####(Q5) Comment in two or three sentences the plot.
+### dcov test is much more powerful than rv test in case of non linear relation. When n increases,power of dcov still increases, and reaches 80% for n=100. But the power of rv test is really low (lower than 20%) regardless of n.
+ 
